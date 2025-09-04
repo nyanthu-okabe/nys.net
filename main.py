@@ -1,4 +1,4 @@
-from flask import Flask, render_template, abort, redirect
+from flask import Flask, render_template, abort, redirect, request
 
 app = Flask(__name__)
 
@@ -18,9 +18,7 @@ for i, item in enumerate(items):
 def index():
     return render_template("index.html")
 
-@app.route("/dl")
-def dl_list():
-    return render_template("dl.html", cards=items)
+
 
 @app.route("/dl/<item_code>")
 def dl_item(item_code):
@@ -34,7 +32,16 @@ def dl_item(item_code):
 # store ページでカード一覧表示
 @app.route("/store")
 def store():
-    return render_template("store.html", cards=items)
+    search_query = request.args.get('q', '')
+    if search_query:
+        filtered_cards = [
+            card for card in items 
+            if search_query.lower() in card['title'].lower() or 
+               search_query.lower() in card['description'].lower()
+        ]
+    else:
+        filtered_cards = items
+    return render_template("store.html", cards=filtered_cards, search_query=search_query)
 
 # install で items に紐付けた GitHub URL にリダイレクト
 @app.route("/install/<item_code>")
