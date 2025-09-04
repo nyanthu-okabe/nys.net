@@ -4,10 +4,10 @@ app = Flask(__name__)
 
 # items にダウンロード用URLを紐付ける
 items = [
-    {"title": "retro_turbogame", "download": "NyanthuUtillSoft/releases/download/v1.02/1.1.1.2.html"},
-    {"title": "NyanthuGame(Mac)", "download": "NyanthuGame/releases/download/v1.01/game.zip"},
-    {"title": "NyanthuNetSoft", "download": "NyanthuNetSoft/releases/download/v1.01/netsoft.zip"},
-    {"title": "NyanthuCoin", "download": "NyanthuCoin/releases/download/v1.01/coin.zip"}
+    {"title": "retro_turbogame", "download": "NyanthuUtillSoft/releases/download/v1.02/1.1.1.2.html", "description": "A retro-style racing game."},
+    {"title": "NyanthuGame(Mac)", "download": "NyanthuGame/releases/download/v1.01/game.zip", "description": "An exciting adventure game for macOS."},
+    {"title": "NyanthuNetSoft", "download": "NyanthuNetSoft/releases/download/v1.01/netsoft.zip", "description": "A utility software for network analysis."},
+    {"title": "NyanthuCoin", "download": "NyanthuCoin/releases/download/v1.01/coin.zip", "description": "A virtual currency application."}
 ]
 
 # 自動で url 追加

@@ -5,6 +5,8 @@
 {% block content %}
   <div class="container">
     <h1>{{ item_info.title }}</h1>
+    <p class="lead">{{ item_info.description }}</p>
+    <hr>
     <p>You are about to download "{{ item_info.title }}".</p>
     <a href="/install/{{ item_info.url }}" class="btn btn-primary">Download</a>
   </div>
