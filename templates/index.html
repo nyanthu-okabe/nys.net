@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block title %}Home{% endblock %}
+
+{% block content %}
+  <div class="px-4 py-5 my-5 text-center">
+    <h1 class="display-5 fw-bold">NYS.net Official Website</h1>
+    <div class="col-lg-6 mx-auto">
+      <p class="lead mb-4">
+        Welcome to the official website of NYS. We provide high-quality software and products.
+      </p>
+      <div class="d-grid gap-2 d-sm-flex justify-content-sm-center">
+        <a href="/store" class="btn btn-primary btn-lg px-4 gap-3">Explore Store</a>
+        <a href="/dl" class="btn btn-outline-secondary btn-lg px-4">See Downloads</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="container marketing">
+    <hr class="featurette-divider">
+    <div class="row featurette">
+      <div class="col-md-7">
+        <h2 class="featurette-heading">High-Quality Software. <span class="text-muted">Built with passion.</span></h2>
+        <p class="lead">All our software is developed with the user in mind. We strive to create products that are easy to use and powerful.</p>
+      </div>
+      <div class="col-md-5">
+        <svg class="bd-placeholder-img bd-placeholder-img-lg featurette-image img-fluid mx-auto" width="500" height="500" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Placeholder: 500x500" preserveAspectRatio="xMidYMid slice" focusable="false"><title>Placeholder</title><rect width="100%" height="100%" fill="#eee"/><text x="50%" y="50%" fill="#aaa" dy=".3em">500x500</text></svg>
+      </div>
+    </div>
+    <hr class="featurette-divider">
+  </div>
+{% endblock %}

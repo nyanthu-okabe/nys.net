@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block title %}Store{% endblock %}
+
+{% block content %}
+  <div class="container">
+    <h1>Store</h1>
+    <div class="row">
+      {% for card in cards %}
+        <div class="col-md-4">
+          <div class="card mb-4">
+            <div class="card-body">
+              <h5 class="card-title">{{ card.title }}</h5>
+              <a href="/install/{{ card.url }}" class="btn btn-primary">Go to download</a>
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+{% endblock %}
