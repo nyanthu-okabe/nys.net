@@ -1,0 +1,65 @@
+{% extends "base.html" %} {% block title %}Request an App{% endblock %} {% block
+content %}
+<div class="container mt-4">
+    <h1 class="mb-4">Request a New Application</h1>
+    <h2 class="mb-3">Current Requests</h2>
+    {% if requests %} {% for req in requests %}
+    <div class="card mb-3">
+        <div class="card-body">
+            <h5 class="card-title">{{ req.name }}</h5>
+            <p class="card-text">{{ req.description }}</p>
+        </div>
+    </div>
+    {% endfor %} {% else %}
+    <p>No requests yet. Be the first to submit one!</p>
+    {% endif %}
+    <!--Req -->
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5 class="card-title">Submit a Request</h5>
+            <form action="/requestapp" method="post">
+                <div class="mb-3">
+                    <label for="app_name" class="form-label"
+                        >Application Name</label
+                    >
+                    <input
+                        type="text"
+                        class="form-control"
+                        id="app_name"
+                        name="app_name"
+                        required
+                    />
+                </div>
+                <div class="mb-3">
+                    <label for="app_description" class="form-label"
+                        >Description</label
+                    >
+                    <textarea
+                        class="form-control"
+                        id="app_description"
+                        name="app_description"
+                        rows="3"
+                        required
+                    ></textarea>
+                </div>
+                <button type="submit" class="btn btn-primary">
+                    Submit Request
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!--<h2 class="mb-3">Current Requests</h2>
+    {% if requests %} {% for req in requests %}
+    <div class="card mb-3">
+        <div class="card-body">
+            <h5 class="card-title">{{ req.name }}</h5>
+            <p class="card-text">{{ req.description }}</p>
+        </div>
+    </div>
+    {% endfor %} {% else %}
+    <p>No requests yet. Be the first to submit one!</p>
+    {% endif %}-->
+</div>
+{% endblock %}

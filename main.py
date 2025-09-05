@@ -1,6 +1,9 @@
 from flask import Flask, render_template, abort, redirect, request
+import json
 
 app = Flask(__name__)
+
+REQUEST_FILE = './requestapp.json'
 
 # items にダウンロード用URLを紐付ける
 items = [
@@ -14,11 +17,20 @@ items = [
 for i, item in enumerate(items):
     item["url"] = str(i)
 
+def load_requests():
+    try:
+        with open(REQUEST_FILE, 'r') as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+def save_requests(data):
+    with open(REQUEST_FILE, 'w') as f:
+        json.dump(data, f, indent=4)
+
 @app.route("/")
 def index():
     return render_template("index.html")
-
-
 
 @app.route("/dl/<item_code>")
 def dl_item(item_code):
@@ -53,6 +65,19 @@ def install(item_code):
     # フルURLに飛ばす
     github_url = f"https://github.com/nyanthu-okabe/{item['download']}"
     return redirect(github_url)
+
+@app.route("/requestapp", methods=['GET', 'POST'])
+def request_app():
+    app_requests = load_requests()
+    if request.method == 'POST':
+        app_name = request.form.get('app_name')
+        app_description = request.form.get('app_description')
+        if app_name and app_description:
+            app_requests.append({'name': app_name, 'description': app_description})
+            save_requests(app_requests)
+            return redirect('/requestapp')
+    
+    return render_template("request.html", requests=app_requests)
 
 if __name__ == "__main__":
     app.run(debug=True)
