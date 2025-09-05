@@ -47,8 +47,8 @@ def store():
     search_query = request.args.get('q', '')
     if search_query:
         filtered_cards = [
-            card for card in items 
-            if search_query.lower() in card['title'].lower() or 
+            card for card in items
+            if search_query.lower() in card['title'].lower() or
                search_query.lower() in card['description'].lower()
         ]
     else:
@@ -76,8 +76,13 @@ def request_app():
             app_requests.append({'name': app_name, 'description': app_description})
             save_requests(app_requests)
             return redirect('/requestapp')
-    
+
     return render_template("request.html", requests=app_requests)
+
+@app.route("/demo")
+def demo():
+    return render_template("demo.html")
+
 
 if __name__ == "__main__":
     app.run(debug=True)
