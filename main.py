@@ -1,10 +1,12 @@
-from flask import Flask, render_template, abort, redirect, request, jsonify,session
+from flask import Flask, render_template, abort, redirect, request, jsonify, session
+from flask_socketio import SocketIO, emit
 import json
 import time
 import uuid
 
 app = Flask(__name__)
-app.secret_key = "適当な秘密鍵"
+app.config['SECRET_KEY'] = '適当な秘密鍵' # Use app.config for secret key
+socketio = SocketIO(app, cors_allowed_origins="*") # Allow all origins for simplicity during development
 
 active_users = {}
 SESSION_TIMEOUT = 10  # 秒、最後のアクセスからこの時間で切れる
@@ -89,65 +91,68 @@ def request_app():
 def demo():
     return render_template("demo.html")
 
-
-@app.before_request
-def track_user():
-    if 'user_id' not in session:
+@socketio.on('connect')
+def handle_connect():
+    user_id = session.get('user_id')
+    if not user_id:
         session['user_id'] = str(uuid.uuid4())
+        user_id = session['user_id']
     
-    user_id = session['user_id']
-    now = time.time()
+    active_users[user_id] = {'last_seen': time.time(), 'sid': request.sid}
+    print(f"Client connected: {user_id} (SID: {request.sid})")
+    emit('current_users', get_active_users_data(), broadcast=True)
 
-    # ユーザーがアクティブリストに存在しない、または最後にアクティブだったセッションでない場合
-    if user_id not in active_users:
-        active_users[user_id] = {}
-
-    active_users[user_id]['last_seen'] = now
-
-@app.route("/demo_client")
-def demo_client():
-    now = time.time()
+@socketio.on('disconnect')
+def handle_disconnect():
+    user_id_to_remove = None
+    for uid, info in active_users.items():
+        if info.get('sid') == request.sid:
+            user_id_to_remove = uid
+            break
     
-    # 古いユーザーを削除
-    for uid in list(active_users.keys()):
-        # last_seen がない、またはタイムアウトしている場合は削除
-        if 'last_seen' not in active_users[uid] or now - active_users[uid]['last_seen'] > SESSION_TIMEOUT:
+    if user_id_to_remove:
+        del active_users[user_id_to_remove]
+        print(f"Client disconnected: {user_id_to_remove} (SID: {request.sid})")
+        emit('user_disconnected', {'id': user_id_to_remove}, broadcast=True)
+        emit('current_users', get_active_users_data(), broadcast=True) # Update all clients
+
+@socketio.on('update_position')
+def handle_update_position(data):
+    user_id = session.get('user_id')
+    if not user_id:
+        return
+
+    x = data.get('x')
+    y = data.get('y')
+
+    if x is None or y is None:
+        return
+
+    active_users[user_id]['x'] = x
+    active_users[user_id]['y'] = y
+    active_users[user_id]['last_seen'] = time.time()
+    
+    # Broadcast the updated position to all other clients
+    emit('user_position_update', {'id': user_id, 'x': x, 'y': y}, broadcast=True, include_self=False)
+
+def get_active_users_data():
+    now = time.time()
+    # Clean up old users (though disconnect should handle most)
+    users_to_remove = []
+    for uid, info in active_users.items():
+        if 'last_seen' not in info or now - info['last_seen'] > SESSION_TIMEOUT:
+            users_to_remove.append(uid)
+    for uid in users_to_remove:
+        if uid in active_users: # Check again in case it was removed by disconnect
             del active_users[uid]
 
-    # x, y座標を持つユーザーのみを返す
+    # Return users with x, y coordinates
     users_data = [
         {"id": uid, "x": info["x"], "y": info["y"]}
         for uid, info in active_users.items()
         if "x" in info and "y" in info
     ]
-    return jsonify(users_data)
-
-
-@app.route("/update_position", methods=["POST"])
-def update_position():
-    user_id = session.get("user_id")
-    if not user_id:
-        return "No session", 400
-
-    data = request.get_json()
-    if not data:
-        return "Invalid data", 400
-        
-    x = data.get("x")
-    y = data.get("y")
-
-    if x is None or y is None:
-        return "Missing x or y", 400
-
-    now = time.time()
-    if user_id not in active_users:
-        active_users[user_id] = {}
-
-    active_users[user_id]['x'] = x
-    active_users[user_id]['y'] = y
-    active_users[user_id]['last_seen'] = now
-    
-    return "OK"
+    return users_data
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    socketio.run(app, debug=True)

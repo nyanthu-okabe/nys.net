@@ -51,41 +51,38 @@ export class GameScene extends Phaser.Scene {
       fill: "#ffffff",
     });
 
-    // 1秒ごとに他ユーザー情報を取得
-    this.time.addEvent({
-      delay: 1000,
-      callback: this.fetchActiveUsers,
-      callbackScope: this,
-      loop: true,
+    // Initialize Socket.IO
+    this.socket = io(); // Connects to the same host and port as the serving page
+
+    // Listen for current_users event (initial state and updates)
+    this.socket.on('current_users', (users) => {
+        this.now_users = users;
+        // console.log("Current connected users:", users);
+    });
+
+    // Listen for user_position_update event
+    this.socket.on('user_position_update', (user) => {
+        // Find and update the user, or add if new
+        const existingUserIndex = this.now_users.findIndex(u => u.id === user.id);
+        if (existingUserIndex !== -1) {
+            this.now_users[existingUserIndex] = user;
+        } else {
+            this.now_users.push(user);
+        }
+    });
+
+    // Listen for user_disconnected event
+    this.socket.on('user_disconnected', (data) => {
+        this.now_users = this.now_users.filter(user => user.id !== data.id);
+        if (this.userBlocks[data.id]) {
+            this.userBlocks[data.id].destroy();
+            delete this.userBlocks[data.id];
+        }
     });
   }
 
-  fetchActiveUsers() {
-    fetch("/demo_client")
-      .then((res) => res.json())
-      .then((users) => {
-        this.now_users = users;
-        // console.log("現在の接続ユーザー:", users);
-      })
-      .catch((err) => {
-        console.error("ユーザー取得失敗:", err);
-      });
-  }
-
   sendMyPosition(x, y) {
-    fetch("/update_position", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ x, y }),
-    })
-      .then((res) => {
-        if (!res.ok) {
-          console.error("Failed to send position:", res.statusText);
-        }
-      })
-      .catch((err) => {
-        console.error("Error sending position:", err);
-      });
+    this.socket.emit('update_position', { x, y });
   }
 
   update() {
