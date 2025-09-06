@@ -1,13 +1,15 @@
 import { Block } from "./block.js";
 
-let looking_x = 0;
-let looking_y = 0;
-let speed_x = 0;
-let speed_y = 0;
-
 export class GameScene extends Phaser.Scene {
   constructor() {
     super({ key: "GameScene" });
+    this.looking_x = 0;
+    this.looking_y = 0;
+    this.speed_x = 0;
+    this.speed_y = 0;
+    this.now_users = [];
+    this.userBlocks = {}; // uid -> Block インスタンス
+    this.lastSentPosition = { x: null, y: null };
   }
 
   preload() {}
@@ -33,7 +35,7 @@ export class GameScene extends Phaser.Scene {
     // 下半分の地面ブロックを生成
     for (let j = 13; j < rows; j++) {
       for (let i = 0; i < cols; i++) {
-        if ((i == 12) | (i == 11)) continue;
+        if (i == 12 && j >= 15) continue;
         const blk = new Block(
           this,
           i * BLOCK_SIZE + BLOCK_SIZE / 2,
@@ -48,22 +50,58 @@ export class GameScene extends Phaser.Scene {
       font: "20px Arial",
       fill: "#ffffff",
     });
+
+    // 1秒ごとに他ユーザー情報を取得
+    this.time.addEvent({
+      delay: 1000,
+      callback: this.fetchActiveUsers,
+      callbackScope: this,
+      loop: true,
+    });
+  }
+
+  fetchActiveUsers() {
+    fetch("/demo_client")
+      .then((res) => res.json())
+      .then((users) => {
+        this.now_users = users;
+        // console.log("現在の接続ユーザー:", users);
+      })
+      .catch((err) => {
+        console.error("ユーザー取得失敗:", err);
+      });
+  }
+
+  sendMyPosition(x, y) {
+    fetch("/update_position", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ x, y }),
+    })
+      .then((res) => {
+        if (!res.ok) {
+          console.error("Failed to send position:", res.statusText);
+        }
+      })
+      .catch((err) => {
+        console.error("Error sending position:", err);
+      });
   }
 
   update() {
     const BLOCK_SIZE = 50;
 
     // 入力
-    if (this.cursors.left.isDown) speed_x += 3;
-    if (this.cursors.right.isDown) speed_x -= 3;
-    if (this.cursors.up.isDown) speed_y += 3;
-    if (this.cursors.down.isDown) speed_y -= 3;
+    if (this.cursors.left.isDown) this.speed_x += 3;
+    if (this.cursors.right.isDown) this.speed_x -= 3;
+    if (this.cursors.up.isDown) this.speed_y += 3;
+    if (this.cursors.down.isDown) this.speed_y -= 3;
 
     // 摩擦（小さくなったらゼロにする）
-    speed_x *= 0.92;
-    speed_y *= 0.92;
-    if (Math.abs(speed_x) < 0.01) speed_x = 0;
-    if (Math.abs(speed_y) < 0.01) speed_y = 0;
+    this.speed_x *= 0.92;
+    this.speed_y *= 0.92;
+    if (Math.abs(this.speed_x) < 0.01) this.speed_x = 0;
+    if (Math.abs(this.speed_y) < 0.01) this.speed_y = 0;
 
     // 画面中央（プレイヤー固定）
     const px = this.scale.width / 2;
@@ -129,10 +167,10 @@ export class GameScene extends Phaser.Scene {
     };
 
     // --- X 軸だけ適用して当たり判定 ---
-    const tryLookingX = looking_x + speed_x;
+    const tryLookingX = this.looking_x + this.speed_x;
     // プレイヤーの world 中心 = screen_center - looking
     const playerWorldX_ifX = px - tryLookingX;
-    const playerWorldY_now = py - looking_y;
+    const playerWorldY_now = py - this.looking_y;
     const playerAABB_X = makeAABB(
       playerWorldX_ifX,
       playerWorldY_now,
@@ -142,15 +180,15 @@ export class GameScene extends Phaser.Scene {
 
     let collidedX = aabbIntersectsBlocks(playerAABB_X);
     if (collidedX) {
-      speed_x = 0;
+      this.speed_x = 0;
       // looking_x は変更しない（X移動キャンセル）
     } else {
-      looking_x = tryLookingX;
+      this.looking_x = tryLookingX;
     }
 
     // --- Y 軸だけ適用して当たり判定 ---
-    const tryLookingY = looking_y + speed_y;
-    const playerWorldX_now = px - looking_x; // note: looking_x は上で更新済みかそのまま
+    const tryLookingY = this.looking_y + this.speed_y;
+    const playerWorldX_now = px - this.looking_x; // note: looking_x は上で更新済みかそのまま
     const playerWorldY_ifY = py - tryLookingY;
     const playerAABB_Y = makeAABB(
       playerWorldX_now,
@@ -161,15 +199,47 @@ export class GameScene extends Phaser.Scene {
 
     let collidedY = aabbIntersectsBlocks(playerAABB_Y);
     if (collidedY) {
-      speed_y = 0;
+      this.speed_y = 0;
       // looking_y は変更しない（Y移動キャンセル）
     } else {
-      looking_y = tryLookingY;
+      this.looking_y = tryLookingY;
+    }
+
+    // Send position to server if it changed significantly
+    if (
+      Math.abs(this.looking_x - this.lastSentPosition.x) > 1 ||
+      Math.abs(this.looking_y - this.lastSentPosition.y) > 1
+    ) {
+      this.sendMyPosition(this.looking_x, this.looking_y);
+      this.lastSentPosition.x = this.looking_x;
+      this.lastSentPosition.y = this.looking_y;
+    }
+
+    // Update other users' blocks
+    const activeUserIds = new Set();
+    this.now_users.forEach((user) => {
+      activeUserIds.add(user.id);
+      let userBlock = this.userBlocks[user.id];
+      if (!userBlock) {
+        // Create new block for new user
+        userBlock = new Block(this, 0, 0, 0x00ffaa); // Different color for other users
+        this.userBlocks[user.id] = userBlock;
+      }
+      // Update position relative to player's looking position
+      userBlock.setPosition(px - (user.x - this.looking_x), py - (user.y - this.looking_y));
+    });
+
+    // Remove blocks for users who are no longer active
+    for (const userId in this.userBlocks) {
+      if (!activeUserIds.has(userId)) {
+        this.userBlocks[userId].destroy();
+        delete this.userBlocks[userId];
+      }
     }
 
     // デバッグ表示
     this.collisionText.setText(
-      `DebugInfo:\ncol{ x:${collidedX}, y:${collidedY}}\nplayer { x:${looking_x}, y:${looking_y}}\nspeed{ x:${speed_x}, y:${speed_y}}`,
+      `DebugInfo:\ncol{ x:${collidedX}, y:${collidedY}}\nplayer { x:${this.looking_x}, y:${this.looking_y}}\nspeed{ x:${this.speed_x}, y:${this.speed_y}}\nUsers: ${this.now_users.length}`,
     );
 
     // ブロック描画更新（world -> screen : worldCenter + looking -> setPosition）
@@ -179,7 +249,7 @@ export class GameScene extends Phaser.Scene {
         if (!blk) continue;
         const worldX = i * BLOCK_SIZE + BLOCK_SIZE / 2;
         const worldY = j * BLOCK_SIZE + BLOCK_SIZE / 2;
-        blk.setPosition(worldX + looking_x, worldY + looking_y);
+        blk.setPosition(worldX + this.looking_x, worldY + this.looking_y);
       }
     }
 

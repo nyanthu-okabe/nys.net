@@ -1,7 +1,13 @@
-from flask import Flask, render_template, abort, redirect, request
+from flask import Flask, render_template, abort, redirect, request, jsonify,session
 import json
+import time
+import uuid
 
 app = Flask(__name__)
+app.secret_key = "適当な秘密鍵"
+
+active_users = {}
+SESSION_TIMEOUT = 10  # 秒、最後のアクセスからこの時間で切れる
 
 REQUEST_FILE = './requestapp.json'
 
@@ -83,6 +89,65 @@ def request_app():
 def demo():
     return render_template("demo.html")
 
+
+@app.before_request
+def track_user():
+    if 'user_id' not in session:
+        session['user_id'] = str(uuid.uuid4())
+    
+    user_id = session['user_id']
+    now = time.time()
+
+    # ユーザーがアクティブリストに存在しない、または最後にアクティブだったセッションでない場合
+    if user_id not in active_users:
+        active_users[user_id] = {}
+
+    active_users[user_id]['last_seen'] = now
+
+@app.route("/demo_client")
+def demo_client():
+    now = time.time()
+    
+    # 古いユーザーを削除
+    for uid in list(active_users.keys()):
+        # last_seen がない、またはタイムアウトしている場合は削除
+        if 'last_seen' not in active_users[uid] or now - active_users[uid]['last_seen'] > SESSION_TIMEOUT:
+            del active_users[uid]
+
+    # x, y座標を持つユーザーのみを返す
+    users_data = [
+        {"id": uid, "x": info["x"], "y": info["y"]}
+        for uid, info in active_users.items()
+        if "x" in info and "y" in info
+    ]
+    return jsonify(users_data)
+
+
+@app.route("/update_position", methods=["POST"])
+def update_position():
+    user_id = session.get("user_id")
+    if not user_id:
+        return "No session", 400
+
+    data = request.get_json()
+    if not data:
+        return "Invalid data", 400
+        
+    x = data.get("x")
+    y = data.get("y")
+
+    if x is None or y is None:
+        return "Missing x or y", 400
+
+    now = time.time()
+    if user_id not in active_users:
+        active_users[user_id] = {}
+
+    active_users[user_id]['x'] = x
+    active_users[user_id]['y'] = y
+    active_users[user_id]['last_seen'] = now
+    
+    return "OK"
 
 if __name__ == "__main__":
     app.run(debug=True)
