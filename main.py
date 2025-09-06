@@ -11,6 +11,25 @@ socketio = SocketIO(app, cors_allowed_origins="*") # Allow all origins for simpl
 active_users = {}
 SESSION_TIMEOUT = 10  # 秒、最後のアクセスからこの時間で切れる
 
+# --- Block Management ---
+BLOCK_SIZE = 50
+DEFAULT_COLS = 20 # Assuming a default game world width of 1000 (20 * 50)
+DEFAULT_ROWS = 16 # Assuming a default game world height of 800 (16 * 50)
+
+# Store blocks as a set of (x, y) tuples for efficient lookup
+# These are world coordinates, not tile indices
+world_blocks = set()
+
+def initialize_world_blocks():
+    for j in range(13, DEFAULT_ROWS):
+        for i in range(DEFAULT_COLS):
+            if i == 12 and j >= 15:
+                continue
+            # Store center coordinates of the block
+            world_blocks.add((i * BLOCK_SIZE + BLOCK_SIZE / 2, j * BLOCK_SIZE + BLOCK_SIZE / 2))
+
+initialize_world_blocks()
+
 REQUEST_FILE = './requestapp.json'
 
 # items にダウンロード用URLを紐付ける
@@ -101,6 +120,7 @@ def handle_connect():
     active_users[user_id] = {'last_seen': time.time(), 'sid': request.sid}
     print(f"Client connected: {user_id} (SID: {request.sid})")
     emit('current_users', get_active_users_data(), broadcast=True)
+    emit('initial_blocks', list(world_blocks)) # Send initial blocks to the newly connected client
 
 @socketio.on('disconnect')
 def handle_disconnect():
@@ -134,6 +154,26 @@ def handle_update_position(data):
     
     # Broadcast the updated position to all other clients
     emit('user_position_update', {'id': user_id, 'x': x, 'y': y}, broadcast=True, include_self=False)
+
+@socketio.on('create_block')
+def handle_create_block(data):
+    x = data.get('x')
+    y = data.get('y')
+    if x is not None and y is not None:
+        block_coords = (x, y)
+        if block_coords not in world_blocks:
+            world_blocks.add(block_coords)
+            emit('block_created', {'x': x, 'y': y}, broadcast=True)
+
+@socketio.on('delete_block')
+def handle_delete_block(data):
+    x = data.get('x')
+    y = data.get('y')
+    if x is not None and y is not None:
+        block_coords = (x, y)
+        if block_coords in world_blocks:
+            world_blocks.remove(block_coords)
+            emit('block_deleted', {'x': x, 'y': y}, broadcast=True)
 
 def get_active_users_data():
     now = time.time()

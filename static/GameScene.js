@@ -3,13 +3,15 @@ import { Block } from "./block.js";
 export class GameScene extends Phaser.Scene {
   constructor() {
     super({ key: "GameScene" });
-    this.looking_x = 0;
-    this.looking_y = 0;
+    this.playerWorldX = 0; // Player's actual world X coordinate
+    this.playerWorldY = 0; // Player's actual world Y coordinate
     this.speed_x = 0;
     this.speed_y = 0;
     this.now_users = [];
     this.userBlocks = {}; // uid -> Block インスタンス
     this.lastSentPosition = { x: null, y: null };
+    this.worldBlocks = new Set(); // Store blocks received from the server as (x, y) tuples
+    this.renderedBlocks = {}; // Store Phaser Block objects, key: `x,y`
   }
 
   preload() {}
@@ -18,9 +20,6 @@ export class GameScene extends Phaser.Scene {
     const BLOCK_SIZE = 50;
     const cols = Math.ceil(this.scale.width / BLOCK_SIZE);
     const rows = Math.ceil(this.scale.height / BLOCK_SIZE);
-
-    // 2次元配列でブロック管理
-    this.blocks = Array.from({ length: rows }, () => Array(cols).fill(null));
 
     // プレイヤーを画面中央に配置
     this.player = new Block(
@@ -31,19 +30,6 @@ export class GameScene extends Phaser.Scene {
     );
 
     this.cursors = this.input.keyboard.createCursorKeys();
-
-    // 下半分の地面ブロックを生成
-    for (let j = 13; j < rows; j++) {
-      for (let i = 0; i < cols; i++) {
-        if (i == 12 && j >= 15) continue;
-        const blk = new Block(
-          this,
-          i * BLOCK_SIZE + BLOCK_SIZE / 2,
-          j * BLOCK_SIZE + BLOCK_SIZE / 2,
-        );
-        this.blocks[j][i] = blk;
-      }
-    }
 
     // 衝突判定テキスト
     this.collisionText = this.add.text(10, 10, "", {
@@ -79,33 +65,93 @@ export class GameScene extends Phaser.Scene {
             delete this.userBlocks[data.id];
         }
     });
+
+    // Listen for initial_blocks event
+    this.socket.on('initial_blocks', (blocks) => {
+        this.worldBlocks.clear();
+        for (const block of blocks) {
+            this.worldBlocks.add(JSON.stringify(block)); // Store as string for Set compatibility
+        }
+        this.renderAllBlocks();
+    });
+
+    // Listen for block_created event
+    this.socket.on('block_created', (block) => {
+        this.worldBlocks.add(JSON.stringify([block.x, block.y]));
+        this.renderBlock(block.x, block.y);
+    });
+
+    // Listen for block_deleted event
+    this.socket.on('block_deleted', (block) => {
+        this.worldBlocks.delete(JSON.stringify([block.x, block.y]));
+        this.destroyBlock(block.x, block.y);
+    });
+
+    // Click handling for block creation/deletion
+    this.input.on('pointerdown', (pointer) => {
+        // Convert screen coordinates to world coordinates
+        const worldX = this.playerWorldX + (pointer.x - this.scale.width / 2);
+        const worldY = this.playerWorldY + (pointer.y - this.scale.height / 2);
+
+        // Convert world coordinates to block center coordinates
+        const blockX = Math.floor(worldX / BLOCK_SIZE) * BLOCK_SIZE + BLOCK_SIZE / 2;
+        const blockY = Math.floor(worldY / BLOCK_SIZE) * BLOCK_SIZE + BLOCK_SIZE / 2;
+
+        const blockKey = JSON.stringify([blockX, blockY]);
+
+        if (this.worldBlocks.has(blockKey)) {
+            // Block exists, so delete it
+            this.socket.emit('delete_block', { x: blockX, y: blockY });
+        } else {
+            // Block does not exist, so create it
+            this.socket.emit('create_block', { x: blockX, y: blockY });
+        }
+    });
   }
 
   sendMyPosition(x, y) {
     this.socket.emit('update_position', { x, y });
   }
 
+  // Helper to render a single block
+  renderBlock(x, y) {
+    const key = `${x},${y}`;
+    if (!this.renderedBlocks[key]) {
+        const blk = new Block(this, x, y);
+        this.renderedBlocks[key] = blk;
+    }
+  }
+
+  // Helper to destroy a single block
+  destroyBlock(x, y) {
+    const key = `${x},${y}`;
+    if (this.renderedBlocks[key]) {
+        this.renderedBlocks[key].destroy();
+        delete this.renderedBlocks[key];
+    }
+  }
+
+  // Render all blocks based on worldBlocks set
+  renderAllBlocks() {
+    // Destroy all currently rendered blocks first
+    for (const key in this.renderedBlocks) {
+        this.renderedBlocks[key].destroy();
+    }
+    this.renderedBlocks = {};
+
+    // Render blocks from the worldBlocks set
+    for (const blockString of this.worldBlocks) {
+        const [x, y] = JSON.parse(blockString);
+        this.renderBlock(x, y);
+    }
+  }
+
   update() {
     const BLOCK_SIZE = 50;
-
-    // 入力
-    if (this.cursors.left.isDown) this.speed_x += 3;
-    if (this.cursors.right.isDown) this.speed_x -= 3;
-    if (this.cursors.up.isDown) this.speed_y += 3;
-    if (this.cursors.down.isDown) this.speed_y -= 3;
-
-    // 摩擦（小さくなったらゼロにする）
-    this.speed_x *= 0.92;
-    this.speed_y *= 0.92;
-    if (Math.abs(this.speed_x) < 0.01) this.speed_x = 0;
-    if (Math.abs(this.speed_y) < 0.01) this.speed_y = 0;
 
     // 画面中央（プレイヤー固定）
     const px = this.scale.width / 2;
     const py = this.scale.height / 2;
-
-    const rows = this.blocks.length;
-    const cols = this.blocks[0].length;
 
     // プレイヤーの半寸法（描画と同じサイズ前提）
     const halfW = BLOCK_SIZE / 2;
@@ -119,97 +165,49 @@ export class GameScene extends Phaser.Scene {
       bottom: cy + hh,
     });
 
-    // ワールド座標系について:
-    // block の world center = (i+0.5)*BLOCK_SIZE, (j+0.5)*BLOCK_SIZE
-    // block の AABB left = i*BLOCK_SIZE, right = (i+1)*BLOCK_SIZE, top = j*BLOCK_SIZE, bottom = (j+1)*BLOCK_SIZE
+    // --- Player Movement and Collision ---
+    let newPlayerWorldX = this.playerWorldX;
+    let newPlayerWorldY = this.playerWorldY;
 
-    // 指定したプレイヤーAABB（world座標）と重なるブロックがあるか調べる
-    const aabbIntersectsBlocks = (aabb) => {
-      // 対象タイル範囲を計算（world座標 -> タイルインデックス）
-      const minI = Math.max(0, Math.floor(aabb.left / BLOCK_SIZE));
-      const maxI = Math.min(
-        cols - 1,
-        Math.floor((aabb.right - 1e-6) / BLOCK_SIZE),
-      );
-      const minJ = Math.max(0, Math.floor(aabb.top / BLOCK_SIZE));
-      const maxJ = Math.min(
-        rows - 1,
-        Math.floor((aabb.bottom - 1e-6) / BLOCK_SIZE),
-      );
+    // Apply input to speed
+    if (this.cursors.left.isDown) this.speed_x -= 3;
+    if (this.cursors.right.isDown) this.speed_x += 3;
+    if (this.cursors.up.isDown) this.speed_y -= 3;
+    if (this.cursors.down.isDown) this.speed_y += 3;
 
-      for (let j = minJ; j <= maxJ; j++) {
-        for (let i = minI; i <= maxI; i++) {
-          const blk = this.blocks[j][i];
-          if (!blk) continue;
-          // ブロックAABB（world座標）
-          const bLeft = i * BLOCK_SIZE;
-          const bRight = (i + 1) * BLOCK_SIZE;
-          const bTop = j * BLOCK_SIZE;
-          const bBottom = (j + 1) * BLOCK_SIZE;
+    // Apply friction
+    this.speed_x *= 0.92;
+    this.speed_y *= 0.92;
+    if (Math.abs(this.speed_x) < 0.01) this.speed_x = 0;
+    if (Math.abs(this.speed_y) < 0.01) this.speed_y = 0;
 
-          // AABB vs AABB 衝突判定
-          if (
-            !(
-              aabb.right <= bLeft ||
-              aabb.left >= bRight ||
-              aabb.bottom <= bTop ||
-              aabb.top >= bBottom
-            )
-          ) {
-            return true;
-          }
-        }
-      }
-      return false;
-    };
-
-    // --- X 軸だけ適用して当たり判定 ---
-    const tryLookingX = this.looking_x + this.speed_x;
-    // プレイヤーの world 中心 = screen_center - looking
-    const playerWorldX_ifX = px - tryLookingX;
-    const playerWorldY_now = py - this.looking_y;
-    const playerAABB_X = makeAABB(
-      playerWorldX_ifX,
-      playerWorldY_now,
-      halfW,
-      halfH,
-    );
-
-    let collidedX = aabbIntersectsBlocks(playerAABB_X);
-    if (collidedX) {
-      this.speed_x = 0;
-      // looking_x は変更しない（X移動キャンセル）
-    } else {
-      this.looking_x = tryLookingX;
+    // Try moving in X
+    newPlayerWorldX += this.speed_x;
+    let playerAABB_X = makeAABB(newPlayerWorldX, this.playerWorldY, halfW, halfH);
+    if (this.aabbIntersectsBlocks(playerAABB_X)) {
+        newPlayerWorldX = this.playerWorldX; // Revert X movement
+        this.speed_x = 0;
     }
 
-    // --- Y 軸だけ適用して当たり判定 ---
-    const tryLookingY = this.looking_y + this.speed_y;
-    const playerWorldX_now = px - this.looking_x; // note: looking_x は上で更新済みかそのまま
-    const playerWorldY_ifY = py - tryLookingY;
-    const playerAABB_Y = makeAABB(
-      playerWorldX_now,
-      playerWorldY_ifY,
-      halfW,
-      halfH,
-    );
-
-    let collidedY = aabbIntersectsBlocks(playerAABB_Y);
-    if (collidedY) {
-      this.speed_y = 0;
-      // looking_y は変更しない（Y移動キャンセル）
-    } else {
-      this.looking_y = tryLookingY;
+    // Try moving in Y
+    newPlayerWorldY += this.speed_y;
+    let playerAABB_Y = makeAABB(this.playerWorldX, newPlayerWorldY, halfW, halfH);
+    if (this.aabbIntersectsBlocks(playerAABB_Y)) {
+        newPlayerWorldY = this.playerWorldY; // Revert Y movement
+        this.speed_y = 0;
     }
+
+    this.playerWorldX = newPlayerWorldX;
+    this.playerWorldY = newPlayerWorldY;
 
     // Send position to server if it changed significantly
     if (
-      Math.abs(this.looking_x - this.lastSentPosition.x) > 1 ||
-      Math.abs(this.looking_y - this.lastSentPosition.y) > 1
+      Math.abs(this.playerWorldX - this.lastSentPosition.x) > 1 ||
+      Math.abs(this.playerWorldY - this.lastSentPosition.y) > 1
     ) {
-      this.sendMyPosition(this.looking_x, this.looking_y);
-      this.lastSentPosition.x = this.looking_x;
-      this.lastSentPosition.y = this.looking_y;
+      this.sendMyPosition(this.playerWorldX, this.playerWorldY);
+      this.lastSentPosition.x = this.playerWorldX;
+      this.lastSentPosition.y = this.playerWorldY;
     }
 
     // Update other users' blocks
@@ -222,8 +220,11 @@ export class GameScene extends Phaser.Scene {
         userBlock = new Block(this, 0, 0, 0x00ffaa); // Different color for other users
         this.userBlocks[user.id] = userBlock;
       }
-      // Update position relative to player's looking position
-      userBlock.setPosition(px - (user.x - this.looking_x), py - (user.y - this.looking_y));
+      // Update position relative to player's screen position
+      userBlock.setPosition(
+        px + (user.x - this.playerWorldX),
+        py + (user.y - this.playerWorldY)
+      );
     });
 
     // Remove blocks for users who are no longer active
@@ -234,23 +235,51 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // デバッグ表示
+    // Debug display
     this.collisionText.setText(
-      `DebugInfo:\ncol{ x:${collidedX}, y:${collidedY}}\nplayer { x:${this.looking_x}, y:${this.looking_y}}\nspeed{ x:${this.speed_x}, y:${this.speed_y}}\nUsers: ${this.now_users.length}`,
+      `DebugInfo:\nplayer { x:${this.playerWorldX}, y:${this.playerWorldY}}\nspeed{ x:${this.speed_x}, y:${this.speed_y}}\nUsers: ${this.now_users.length}`,
     );
 
-    // ブロック描画更新（world -> screen : worldCenter + looking -> setPosition）
-    for (let j = 0; j < rows; j++) {
-      for (let i = 0; i < cols; i++) {
-        const blk = this.blocks[j][i];
-        if (!blk) continue;
-        const worldX = i * BLOCK_SIZE + BLOCK_SIZE / 2;
-        const worldY = j * BLOCK_SIZE + BLOCK_SIZE / 2;
-        blk.setPosition(worldX + this.looking_x, worldY + this.looking_y);
-      }
+    // Block rendering update (world -> screen)
+    for (const blockString of this.worldBlocks) {
+        const [worldX, worldY] = JSON.parse(blockString);
+        const key = `${worldX},${worldY}`;
+        const blk = this.renderedBlocks[key];
+        if (blk) {
+            blk.setPosition(
+                px + (worldX - this.playerWorldX),
+                py + (worldY - this.playerWorldY)
+            );
+        }
     }
 
-    // プレイヤーは画面中央固定
+    // Player is fixed at screen center
     this.player.setPosition(px, py);
+  }
+
+  // Helper for AABB collision detection against world blocks
+  aabbIntersectsBlocks(aabb) {
+    const BLOCK_SIZE = 50;
+    for (const blockString of this.worldBlocks) {
+      const [blockX, blockY] = JSON.parse(blockString);
+      // Block AABB (world coordinates)
+      const bLeft = blockX - BLOCK_SIZE / 2;
+      const bRight = blockX + BLOCK_SIZE / 2;
+      const bTop = blockY - BLOCK_SIZE / 2;
+      const bBottom = blockY - BLOCK_SIZE / 2;
+
+      // AABB vs AABB collision detection
+      if (
+        !(
+          aabb.right <= bLeft ||
+          aabb.left >= bRight ||
+          aabb.bottom <= bTop ||
+          aabb.top >= bBottom
+        )
+      ) {
+        return true;
+      }
+    }
+    return false;
   }
 }
