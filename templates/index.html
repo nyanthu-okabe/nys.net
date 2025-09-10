@@ -1,5 +1,24 @@
 {% extends "base.html" %} {% block title %}Home{% endblock %} {% block content
 %}
+<!-- GLB埋め込み部分 -->
+<model-viewer
+    src="{{ url_for('static', filename='monkey.glb') }}"
+    alt="Monkey Model"
+    camera-controls
+    auto-rotate
+    shadow-intensity="1"
+    ar
+    style="
+        width: 80vw;
+        height: 80vh;
+        /*background: #111;*/
+        background: #ffffff;
+        display: block;
+        margin: 0 auto;
+    "
+>
+</model-viewer>
+
 <div class="px-4 py-5 my-5 text-center">
     <h1 class="display-5 fw-bold">NYS.net Official Website</h1>
     <div class="col-lg-6 mx-auto">
@@ -8,12 +27,9 @@
             software and products.
         </p>
         <div class="d-grid gap-2 d-sm-flex justify-content-sm-center">
-            <a href="/store" class="btn btn-primary btn-lg px-4 gap-3"
-                >Explore Store</a
-            >
-            <a href="/demo" class="btn btn-outline-secondary btn-lg px-4"
-                >Play Demo</a
-            >
+            <a href="/store" class="btn btn-primary btn-lg px-4 gap-3">
+                Explore Store
+            </a>
         </div>
     </div>
 </div>
@@ -32,9 +48,6 @@
             </p>
         </div>
         <div class="col-md-5">
-            <!-- 使わん class はコメントで残す -->
-            <!-- class="bd-placeholder-img bd-placeholder-img-lg featurette-image img-fluid mx-auto" -->
-
             <img
                 src="{{ url_for('static', filename='s3.png') }}"
                 alt="s3.png"
